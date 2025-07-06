@@ -462,7 +462,7 @@ class Game:
     def setup_start_buttons(self):
         self.start_buttons = []
         w, h, gap = 380, 60, 75
-        cx, sy = WIDTH / 2 - w / 2, HEIGHT / 2 - h - gap * 1.5
+        cx, sy = WIDTH / 2 - w / 2, HEIGHT / 2 - h - gap * 2
 
         self.start_buttons.append(Button(cx, sy, w, h, "普通模式", 0, lambda g: g.start_new_game("normal")))
         self.start_buttons.append(Button(cx, sy + gap, w, h, "副本模式", 0, lambda g: g.start_new_game("dungeon")))
@@ -472,6 +472,7 @@ class Game:
         if not os.path.exists(SAVE_FILE):
             continue_button.cost = -1 # Make it unclickable
         self.start_buttons.append(continue_button)
+        self.start_buttons.append(Button(cx, sy + 4 * gap, w, h, "退出游戏", 0, lambda g: g.quit()))
 
     def start_new_game(self, mode):
         self.current_mode = mode
