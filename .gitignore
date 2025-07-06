@@ -1,11 +1,3 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-
-# PyInstaller
-build/
-dist/
-
-# macOS
-.DS_Store
+# User data
+accounts.json
+last_login.json

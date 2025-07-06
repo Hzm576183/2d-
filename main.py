@@ -7,7 +7,7 @@ import json
 
 from constants import *
 from entities import Player, Enemy, Projectile
-from endless_mode import Boss
+from endless_mode import Boss, TutorialBoss
 from account_manager import account_manager
 from ui import Button, SkillPanel, SkillTreePopup
 from skills import SkillTree
@@ -36,10 +36,20 @@ class UI:
             self.draw_account_selection_screen(screen)
         elif self.game.game_state == START_SCREEN:
             self.draw_start_screen(screen)
+        elif self.game.game_state == TUTORIAL_POPUP:
+            if self.game.tutorial_stage == 1:
+                self.draw_tutorial_popup(screen, "欢迎来到新手教程！\n请使用 WASD 或方向键移动。")
+            elif self.game.tutorial_stage == 2.5:
+                self.draw_tutorial_popup(screen, "很好！现在，准备好迎战一波敌人。")
+            elif self.game.tutorial_stage == 3:
+                self.draw_tutorial_popup(screen, "干得漂亮！现在，挑战最终Boss！")
         elif self.game.game_state == GAME_OVER:
             self.draw_game_over_screen(screen)
         elif self.game.game_state == GAME_WON:
-            self.draw_game_won_screen(screen)
+            if self.game.current_mode == TUTORIAL:
+                self.draw_tutorial_popup(screen, "恭喜你完成新手教程！\n现在可以去挑战其他模式了！")
+            else:
+                self.draw_game_won_screen(screen)
         else:
             self.draw_player_hud(screen)
             self.draw_skill_slots(screen)
@@ -141,21 +151,21 @@ class UI:
         start_x = (WIDTH - (4 * slot_size + 3 * slot_margin)) / 2
         start_y = HEIGHT - slot_size - slot_margin
 
-        for i, skill in enumerate(self.game.player.skills):
-            x = start_x + i * (slot_size + slot_margin)
+        if self.game.player.dash_unlocked:
+            x = start_x
             slot_rect = pygame.Rect(x, start_y, slot_size, slot_size)
             
-            progress = skill.get_cooldown_progress()
+            progress = self.game.player.get_dash_cooldown_progress()
             
             pygame.draw.rect(screen, BLUE, slot_rect)
             if progress < 1.0:
                 overlay_rect = pygame.Rect(x, start_y, slot_size, slot_size * (1-progress))
                 pygame.draw.rect(screen, (0, 0, 50, 200), overlay_rect)
 
-            charge_text = self.charge_font.render(str(skill.current_charges), True, WHITE)
+            charge_text = self.charge_font.render(str(self.game.player.dash_current_charges), True, WHITE)
             screen.blit(charge_text, charge_text.get_rect(bottomright=(slot_rect.right - 5, slot_rect.bottom - 5)))
 
-            key_name = pygame.key.name(skill.key).upper()
+            key_name = pygame.key.name(self.game.player.dash_key).upper()
             if key_name == "SPACE": key_name = "空格"
             key_text = self.key_font.render(key_name, True, WHITE)
             screen.blit(key_text, key_text.get_rect(topleft=(slot_rect.left + 5, slot_rect.top + 5)))
@@ -189,6 +199,21 @@ class UI:
         restart_text = self.score_font.render("按 R 键重新开始", True, WHITE)
         screen.blit(restart_text, restart_text.get_rect(center=(WIDTH / 2, HEIGHT / 2 + 80)))
 
+    def draw_tutorial_popup(self, screen, text):
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 220))
+        screen.blit(overlay, (0, 0))
+        
+        lines = text.split('\n')
+        y_offset = HEIGHT / 2 - len(lines) * 20
+        for line in lines:
+            popup_text = self.score_font.render(line, True, WHITE)
+            screen.blit(popup_text, popup_text.get_rect(center=(WIDTH / 2, y_offset)))
+            y_offset += 50
+        
+        continue_text = self.font.render("按任意键继续", True, YELLOW)
+        screen.blit(continue_text, continue_text.get_rect(center=(WIDTH / 2, HEIGHT - 100)))
+
 
 class Game:
     def __init__(self):
@@ -199,7 +224,6 @@ class Game:
         self.is_running = True
         self.dt = 0
         self.max_scroll_y = 0
-        self.game_state = ACCOUNT_SELECTION
         self.account_input_text = ''
         self.selected_account = None
         self.highscore = 0
@@ -208,7 +232,27 @@ class Game:
         self.skill_tree = SkillTree()
         self.skill_panel = SkillPanel(20, 150, 250, 400, self.skill_tree)
         self.skill_tree_popup = SkillTreePopup(600, 400, self.skill_tree)
+        self.last_click_time = 0
+        self.last_clicked_account = None
+        self.tutorial_stage = 0
+        self.tutorial_timer = 0
+
         self.reset_game()
+        self.check_last_login()
+
+    def check_last_login(self):
+        if os.path.exists("last_login.json"):
+            with open("last_login.json", 'r') as f:
+                try:
+                    data = json.load(f)
+                    last_account = data.get("last_account")
+                    if account_manager.set_current_account(last_account):
+                        self.load_from_account()
+                except json.JSONDecodeError:
+                    self.game_state = ACCOUNT_SELECTION
+        else:
+            self.game_state = ACCOUNT_SELECTION
+
 
     def save_highscore(self):
         account_data = account_manager.get_current_account_data()
@@ -257,14 +301,21 @@ class Game:
 
         self.start_buttons.append(Button(cx, sy, w, h, "普通模式", 0, lambda g: g.start_new_game("normal")))
         self.start_buttons.append(Button(cx, sy + gap, w, h, "副本模式", 0, lambda g: g.start_new_game("dungeon")))
-        self.start_buttons.append(Button(cx, sy + 2 * gap, w, h, "无尽模式", 0, lambda g: g.start_new_game("endless")))
+        self.start_buttons.append(Button(cx, sy + 2 * gap, w, h, "无尽模式", 0, lambda g: g.start_new_game(ENDLESS)))
+        self.start_buttons.append(Button(cx, sy + 3 * gap, w, h, "新手教程", 0, lambda g: g.start_new_game(TUTORIAL)))
         
-        continue_button = Button(cx, sy + 3 * gap, w, h, "继续游戏", 0, lambda g: g.continue_game())
+        continue_button = Button(cx, sy + 4 * gap, w, h, "继续游戏", 0, lambda g: g.continue_game())
         save_file = account_manager.get_current_account_data().get("save_file") if account_manager.get_current_account_data() else None
         if not save_file or not os.path.exists(save_file):
             continue_button.cost = -1 # Make it unclickable
         self.start_buttons.append(continue_button)
-        self.start_buttons.append(Button(cx, sy + 4 * gap, w, h, "退出游戏", 0, lambda g: g.quit()))
+        self.start_buttons.append(Button(cx, sy + 5 * gap, w, h, "切换账户", 0, lambda g: g.switch_account()))
+        self.start_buttons.append(Button(cx, sy + 6 * gap, w, h, "退出游戏", 0, lambda g: g.quit()))
+
+    def switch_account(self):
+        if os.path.exists("last_login.json"):
+            os.remove("last_login.json")
+        self.game_state = ACCOUNT_SELECTION
 
     def start_new_game(self, mode):
         self.current_mode = mode
@@ -272,9 +323,14 @@ class Game:
         self.upgrade_points = 0
         self.player.kill_count = 0
         self.player.health = self.player.max_health
-        self.game_state = PLAYING
         self.zen_wave = 0
-        self.start_new_level(False)
+        
+        if mode == TUTORIAL:
+            self.tutorial_stage = 1
+            self.game_state = TUTORIAL_POPUP
+        else:
+            self.game_state = PLAYING
+            self.start_new_level(False)
 
     def continue_game(self):
         if self.load_game():
@@ -314,7 +370,7 @@ class Game:
             ("攻击速度", 1, lambda g: setattr(g.player, 'attack_speed', g.player.attack_speed * 0.85)),
             ("最大生命", 1, lambda g: (setattr(g.player, 'max_health', g.player.max_health + 20), g.player.heal(20))),
             ("散射", 1, lambda g: setattr(g.player, 'projectile_count', g.player.projectile_count + 2)),
-            ("购买冲刺次数", 2, lambda g: g.player.skills[0].add_charge() if g.player.skills else None)
+            ("购买冲刺次数", 2, lambda g: g.player.add_dash_charge())
         ]
         for i, (text, cost, action) in enumerate(upgrades):
             self.upgrade_buttons.append(Button(cx, sy + i * gap, w, h, text, cost, action))
@@ -340,8 +396,28 @@ class Game:
                 self.handle_account_selection_events(event)
                 continue
 
-            if self.game_state == SKILL_TREE_VIEW:
-                self.skill_tree_popup.handle_event(event, self)
+            if self.game_state == TUTORIAL_POPUP:
+                if event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
+                    if self.tutorial_stage == 1:
+                        self.tutorial_stage = 2
+                        self.game_state = PLAYING
+                        self.tutorial_timer = pygame.time.get_ticks()
+                        # No enemies in this stage
+                    elif self.tutorial_stage == 2.5:
+                        self.game_state = PLAYING
+                        # Spawn tutorial enemies
+                        for _ in range(10):
+                            enemy = Enemy(self, self.player)
+                            enemy.health = 1 # Make them weak
+                            self.all_sprites.add(enemy)
+                            self.enemy_group.add(enemy)
+                    elif self.tutorial_stage == 3:
+                        self.game_state = PLAYING
+                        self.tutorial_stage = 3.5
+                        # Spawn tutorial boss
+                        boss = TutorialBoss(self, self.player)
+                        self.all_sprites.add(boss)
+                        self.enemy_group.add(boss)
                 continue
 
             if self.game_state == UPGRADING or self.game_state == PAUSED:
@@ -379,6 +455,10 @@ class Game:
                 if (self.game_state == GAME_OVER or self.game_state == GAME_WON) and event.key == pygame.K_r:
                     self.reset_game()
                 
+                if self.game_state == GAME_WON and self.current_mode == TUTORIAL:
+                    if event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
+                        self.game_state = ACCOUNT_SELECTION
+                
                 if self.game_state == PLAYING:
                     pass # Player movement and skill activation is handled in Player class
 
@@ -401,7 +481,13 @@ class Game:
             for name in account_manager.accounts:
                 rect = pygame.Rect(WIDTH / 2 - 150, y_offset - 25, 300, 50)
                 if rect.collidepoint(event.pos):
+                    current_time = pygame.time.get_ticks()
+                    if self.selected_account == name and current_time - self.last_click_time < 500:
+                        # Double click
+                        self.select_account()
+                        return
                     self.selected_account = name
+                    self.last_click_time = current_time
                 y_offset += 50
             
             # Check button clicks
@@ -418,19 +504,41 @@ class Game:
     def select_account(self):
         if self.selected_account:
             account_manager.set_current_account(self.selected_account)
+            with open("last_login.json", 'w') as f:
+                json.dump({"last_account": self.selected_account}, f)
             self.load_from_account()
 
 
     def update(self):
         if self.game_state == PLAYING:
+            # Handle tutorial stage progression
+            if self.current_mode == TUTORIAL and self.tutorial_stage == 2:
+                if pygame.time.get_ticks() - self.tutorial_timer > 5000: # 5 seconds
+                    self.tutorial_stage = 2.5
+                    self.game_state = TUTORIAL_POPUP
+
             self.all_sprites.update()
             self.check_collisions()
+
+            # Handle level completion
             if not self.enemy_group:
-                if self.is_zen_mode and self.zen_wave < 4:
+                if self.current_mode == TUTORIAL:
+                    if self.tutorial_stage == 2:
+                        # This is the free-roam time, do nothing.
+                        pass
+                    elif self.tutorial_stage == 2.5:
+                        # Finished killing tutorial enemies
+                        self.tutorial_stage = 3
+                        self.game_state = TUTORIAL_POPUP
+                    elif self.tutorial_stage == 3.5:
+                        # Finished killing tutorial boss
+                        self.game_state = GAME_WON
+                elif self.is_zen_mode and self.zen_wave < 4:
                     self.zen_wave += 1
-                    self.start_new_level(False) # Don't increment level yet
+                    self.start_new_level(False)
                 else:
-                    if self.current_mode == "normal" and self.level + self.zen_wave >= 20:
+                    # Normal level completion logic
+                    if self.current_mode == NORMAL and self.level + self.zen_wave >= 20:
                         self.game_state = GAME_WON
                     else:
                         self.level += 5 if self.is_zen_mode else 1
@@ -440,7 +548,6 @@ class Game:
                         self.ui.scroll_y = 0
                         self.zen_wave = 0
                         
-                        # Recalculate max_scroll_y for upgrade screen
                         h, gap = 60, 75
                         sy = 180
                         content_height = (len(self.upgrade_buttons) * (h + gap)) - gap

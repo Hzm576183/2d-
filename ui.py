@@ -48,8 +48,8 @@ class SkillPanel:
     def draw(self, screen, player_points):
         pygame.draw.rect(screen, GREY, self.rect)
         y_offset = self.rect.y + 20
-        for skill in self.skill_tree.skills.values():
-            text = f"{skill.name} - {'已学习' if skill.is_learned else f'{skill.cost}点'}"
+        for skill_def in self.skill_tree.skills.values():
+            text = f"{skill_def.name} - {'已学习' if skill_def.is_learned else f'{skill_def.cost}点'}"
             # ... (drawing logic for each skill)
 
     def handle_event(self, event, game):

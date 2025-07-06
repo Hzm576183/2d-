@@ -2,48 +2,7 @@ import pygame
 from constants import *
 import random
 
-class Skill:
-    def __init__(self, player, name, cooldown, max_charges, key):
-        self.player = player
-        self.name = name
-        self.cooldown = cooldown * 1000
-        self.max_charges = max_charges
-        self.key = key
-        self.current_charges = 1
-        self.cooldown_timer = 0
 
-    def activate(self):
-        if self.current_charges > 0:
-            self.current_charges -= 1
-            if self.current_charges < self.max_charges:
-                self.cooldown_timer = pygame.time.get_ticks()
-            
-            if self.name == "冲刺":
-                direction = pygame.math.Vector2(
-                    (pygame.key.get_pressed()[pygame.K_RIGHT] or pygame.key.get_pressed()[pygame.K_d]) - 
-                    (pygame.key.get_pressed()[pygame.K_LEFT] or pygame.key.get_pressed()[pygame.K_a]),
-                    (pygame.key.get_pressed()[pygame.K_DOWN] or pygame.key.get_pressed()[pygame.K_s]) - 
-                    (pygame.key.get_pressed()[pygame.K_UP] or pygame.key.get_pressed()[pygame.K_w])
-                )
-                if direction.length() > 0:
-                    self.player.pos += direction.normalize() * 150
-            return True
-        return False
-
-    def update(self):
-        if self.current_charges < self.max_charges:
-            now = pygame.time.get_ticks()
-            if now - self.cooldown_timer > self.cooldown:
-                self.add_charge()
-                self.cooldown_timer = now
-
-    def add_charge(self, amount=1):
-        self.current_charges = min(self.max_charges, self.current_charges + amount)
-
-    def get_cooldown_progress(self):
-        if self.current_charges >= self.max_charges:
-            return 1.0
-        return (pygame.time.get_ticks() - self.cooldown_timer) / self.cooldown
 
 class Projectile(pygame.sprite.Sprite):
     def __init__(self, game, pos, direction):
@@ -80,19 +39,55 @@ class Player(pygame.sprite.Sprite):
         self.last_shot_time = 0
         self.kill_count = 0
 
-        self.skills = [
-            Skill(self, "冲刺", 5, 3, pygame.K_SPACE)
-        ]
+        # Skill: Dash
+        self.dash_unlocked = True  # Player starts with dash
+        self.dash_cooldown = 5 * 1000  # 5 seconds
+        self.dash_max_charges = 3
+        self.dash_current_charges = 1
+        self.dash_cooldown_timer = 0
+        self.dash_key = pygame.K_SPACE
 
     def update(self):
         self.get_keys()
         if self.game.enemy_group:
             self.shoot()
         
-        for skill in self.skills:
-            skill.update()
+        self.update_skills()
             
         self.rect.center = self.pos
+
+    def update_skills(self):
+        # Dash Cooldown
+        if self.dash_unlocked and self.dash_current_charges < self.dash_max_charges:
+            now = pygame.time.get_ticks()
+            if now - self.dash_cooldown_timer > self.dash_cooldown:
+                self.add_dash_charge()
+                self.dash_cooldown_timer = now
+
+    def activate_dash(self):
+        if self.dash_unlocked and self.dash_current_charges > 0:
+            self.dash_current_charges -= 1
+            if self.dash_current_charges < self.dash_max_charges:
+                self.dash_cooldown_timer = pygame.time.get_ticks()
+            
+            direction = pygame.math.Vector2(
+                (pygame.key.get_pressed()[pygame.K_RIGHT] or pygame.key.get_pressed()[pygame.K_d]) - 
+                (pygame.key.get_pressed()[pygame.K_LEFT] or pygame.key.get_pressed()[pygame.K_a]),
+                (pygame.key.get_pressed()[pygame.K_DOWN] or pygame.key.get_pressed()[pygame.K_s]) - 
+                (pygame.key.get_pressed()[pygame.K_UP] or pygame.key.get_pressed()[pygame.K_w])
+            )
+            if direction.length() > 0:
+                self.pos += direction.normalize() * 150
+            return True
+        return False
+
+    def add_dash_charge(self, amount=1):
+        self.dash_current_charges = min(self.dash_max_charges, self.dash_current_charges + amount)
+
+    def get_dash_cooldown_progress(self):
+        if not self.dash_unlocked or self.dash_current_charges >= self.dash_max_charges:
+            return 1.0
+        return (pygame.time.get_ticks() - self.dash_cooldown_timer) / self.dash_cooldown
 
     def shoot(self):
         now = pygame.time.get_ticks()
@@ -134,9 +129,8 @@ class Player(pygame.sprite.Sprite):
             self.pos += vel.normalize() * self.speed * self.game.dt
         self.keep_on_screen()
 
-        for skill in self.skills:
-            if keys[skill.key]:
-                skill.activate()
+        if keys[self.dash_key]:
+            self.activate_dash()
 
     def keep_on_screen(self):
         self.pos.x = max(PLAYER_SIZE / 2, min(self.pos.x, WIDTH - PLAYER_SIZE / 2))

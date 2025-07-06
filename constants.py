@@ -25,6 +25,13 @@ GAME_OVER = 'game_over'
 GAME_WON = 'game_won'
 PAUSED = 'paused'
 SKILL_TREE_VIEW = 'skill_tree_view'
+TUTORIAL_POPUP = 'tutorial_popup'
+
+# --- Game Modes ---
+NORMAL = 'normal'
+DUNGEON = 'dungeon'
+ENDLESS = 'endless'
+TUTORIAL = 'tutorial'
 
 # --- Game Settings ---
 PLAYER_SIZE = 30
