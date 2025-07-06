@@ -5,189 +5,16 @@ import math
 import os
 import json
 
-# --- Constants ---
-WIDTH = 1280
-HEIGHT = 720
-FPS = 60
-SAVE_FILE = "savegame.json"
-HIGHSCORE_FILE = "highscore.json"
+from constants import *
+from entities import Player, Enemy, Skill, Projectile
+from endless_mode import Boss
+from account_manager import account_manager
 
 # --- File Paths ---
 # Get the absolute path to the directory where the script is located
 script_dir = os.path.dirname(os.path.abspath(__file__))
 assets_dir = os.path.join(script_dir, "assets")
 FONT_NAME = os.path.join(assets_dir, "SourceHanSansSC-Regular.ttf")
-
-# --- Colors ---
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-RED = (255, 0, 0)
-GREEN = (0, 255, 0)
-BLUE = (0, 0, 255)
-YELLOW = (255, 255, 0)
-GREY = (128, 128, 128)
-
-# --- Game States ---
-START_SCREEN = 'start_screen'
-PLAYING = 'playing'
-UPGRADING = 'upgrading'
-GAME_OVER = 'game_over'
-GAME_WON = 'game_won'
-PAUSED = 'paused'
-
-# --- Game Settings ---
-PLAYER_SIZE = 30
-PLAYER_SPEED = 250
-PLAYER_HEALTH = 100
-PLAYER_ATTACK_SPEED = 500  # ms
-
-ENEMY_SIZE = 25
-ENEMY_SPEED = 120
-ENEMY_HEALTH = 10
-ENEMY_DAMAGE = 10
-
-PROJECTILE_SIZE = 10
-PROJECTILE_SPEED = 600
-
-
-class Player(pygame.sprite.Sprite):
-    def __init__(self, game):
-        super().__init__()
-        self.game = game
-        self.image = pygame.Surface((PLAYER_SIZE, PLAYER_SIZE))
-        self.image.fill(BLUE)
-        self.rect = self.image.get_rect(center=(WIDTH / 2, HEIGHT / 2))
-        self.pos = pygame.math.Vector2(self.rect.center)
-        
-        self.speed = PLAYER_SPEED
-        self.max_health = PLAYER_HEALTH
-        self.health = self.max_health
-        self.attack_speed = PLAYER_ATTACK_SPEED
-        self.projectile_count = 1
-        
-        self.last_shot_time = 0
-        self.kill_count = 0
-
-        self.skills = [
-            Skill(self, "冲刺", 5, 3, pygame.K_SPACE)
-        ]
-
-    def update(self):
-        self.get_keys()
-        if self.game.enemy_group:
-            self.shoot()
-        
-        for skill in self.skills:
-            skill.update()
-            
-        self.rect.center = self.pos
-
-    def shoot(self):
-        now = pygame.time.get_ticks()
-        if now - self.last_shot_time > self.attack_speed:
-            self.last_shot_time = now
-            
-            closest_enemy = self.find_closest_enemy()
-            if closest_enemy:
-                direction = (closest_enemy.pos - self.pos).normalize()
-                self.create_projectiles(direction)
-
-    def find_closest_enemy(self):
-        return min(self.game.enemy_group, key=lambda enemy: self.pos.distance_to(enemy.pos), default=None)
-
-    def create_projectiles(self, base_direction):
-        self.spawn_projectile(base_direction)
-        if self.projectile_count > 1:
-            spread_angle = 15
-            num_side_projectiles = (self.projectile_count - 1) // 2
-            for i in range(num_side_projectiles):
-                angle = spread_angle * (i + 1)
-                self.spawn_projectile(base_direction.rotate(angle))
-                self.spawn_projectile(base_direction.rotate(-angle))
-
-    def spawn_projectile(self, direction):
-        projectile = Projectile(self.game, self.pos, direction)
-        self.game.all_sprites.add(projectile)
-        self.game.projectile_group.add(projectile)
-
-    def get_keys(self):
-        keys = pygame.key.get_pressed()
-        vel = pygame.math.Vector2(0, 0)
-        if keys[pygame.K_LEFT] or keys[pygame.K_a]: vel.x = -1
-        if keys[pygame.K_RIGHT] or keys[pygame.K_d]: vel.x = 1
-        if keys[pygame.K_UP] or keys[pygame.K_w]: vel.y = -1
-        if keys[pygame.K_DOWN] or keys[pygame.K_s]: vel.y = 1
-        
-        if vel.length() > 0:
-            self.pos += vel.normalize() * self.speed * self.game.dt
-        self.keep_on_screen()
-
-    def keep_on_screen(self):
-        self.pos.x = max(PLAYER_SIZE / 2, min(self.pos.x, WIDTH - PLAYER_SIZE / 2))
-        self.pos.y = max(PLAYER_SIZE / 2, min(self.pos.y, HEIGHT - PLAYER_SIZE / 2))
-        self.rect.center = self.pos
-
-    def is_alive(self):
-        return self.health > 0
-
-    def take_damage(self, amount):
-        self.health -= amount
-        if self.health <= 0:
-            self.health = 0
-            self.game.game_state = GAME_OVER
-            if self.game.current_mode == "endless" and self.game.level > self.game.highscore:
-                self.game.highscore = self.game.level
-                self.game.save_highscore()
-
-    def heal(self, amount):
-        self.health = min(self.max_health, self.health + amount)
-
-
-class Projectile(pygame.sprite.Sprite):
-    def __init__(self, game, pos, direction):
-        super().__init__()
-        self.game = game
-        self.image = pygame.Surface((PROJECTILE_SIZE, PROJECTILE_SIZE))
-        self.image.fill(YELLOW)
-        self.rect = self.image.get_rect(center=pos)
-        self.pos = pygame.math.Vector2(pos)
-        self.direction = direction
-        self.speed = PROJECTILE_SPEED
-
-    def update(self):
-        self.pos += self.direction * self.speed * self.game.dt
-        self.rect.center = self.pos
-        if not self.game.screen.get_rect().colliderect(self.rect):
-            self.kill()
-
-
-class Enemy(pygame.sprite.Sprite):
-    def __init__(self, game, player):
-        super().__init__()
-        self.game = game
-        self.player = player
-        self.image = pygame.Surface((ENEMY_SIZE, ENEMY_SIZE))
-        self.image.fill(RED)
-        self.pos = self.get_spawn_pos()
-        self.rect = self.image.get_rect(center=self.pos)
-        self.speed = ENEMY_SPEED
-        self.health = ENEMY_HEALTH + (self.game.level - 1) * 2 # Increased health scaling
-        self.damage = ENEMY_DAMAGE
-
-    def get_spawn_pos(self):
-        margin = 50
-        side = random.choice(['top', 'bottom', 'left', 'right'])
-        if side == 'top': return pygame.math.Vector2(random.randint(-margin, WIDTH + margin), -margin)
-        if side == 'bottom': return pygame.math.Vector2(random.randint(-margin, WIDTH + margin), HEIGHT + margin)
-        if side == 'left': return pygame.math.Vector2(-margin, random.randint(-margin, HEIGHT + margin))
-        if side == 'right': return pygame.math.Vector2(WIDTH + margin, random.randint(-margin, HEIGHT + margin))
-
-    def update(self):
-        if self.player.is_alive():
-            direction = (self.player.pos - self.pos).normalize()
-            self.pos += direction * self.speed * self.game.dt
-            self.rect.center = self.pos
-
 
 class UI:
     def __init__(self, game):
@@ -209,7 +36,9 @@ class UI:
 
 
     def draw(self, screen):
-        if self.game.game_state == START_SCREEN:
+        if self.game.game_state == 'account_selection':
+            self.draw_account_selection_screen(screen)
+        elif self.game.game_state == START_SCREEN:
             self.draw_start_screen(screen)
         elif self.game.game_state == GAME_OVER:
             self.draw_game_over_screen(screen)
@@ -223,6 +52,33 @@ class UI:
                 self.draw_upgrade_screen(screen)
             elif self.game.game_state == PAUSED:
                 self.draw_pause_screen(screen)
+
+    def draw_account_selection_screen(self, screen):
+        screen.fill(BLACK)
+        title_text = self.title_font.render("选择或创建账户", True, WHITE)
+        screen.blit(title_text, title_text.get_rect(center=(WIDTH / 2, 100)))
+
+        # Draw account list
+        y_offset = 200
+        for name in account_manager.accounts:
+            color = YELLOW if name == self.game.selected_account else WHITE
+            text = self.font.render(name, True, color)
+            rect = text.get_rect(center=(WIDTH / 2, y_offset))
+            screen.blit(text, rect)
+            y_offset += 50
+
+        # Draw input box
+        input_rect = pygame.Rect(WIDTH / 2 - 150, y_offset, 300, 50)
+        pygame.draw.rect(screen, WHITE, input_rect, 2)
+        input_text = self.font.render(self.game.account_input_text, True, WHITE)
+        screen.blit(input_text, (input_rect.x + 5, input_rect.y + 5))
+
+        # Draw buttons
+        create_button = Button(WIDTH / 2 - 150, y_offset + 60, 140, 50, "创建", 0, lambda g: g.create_account())
+        enter_button = Button(WIDTH / 2 + 10, y_offset + 60, 140, 50, "进入游戏", 0, lambda g: g.select_account())
+        create_button.draw(screen, 1)
+        enter_button.draw(screen, 1)
+
 
     def draw_start_screen(self, screen):
         screen.fill(BLACK)
@@ -362,50 +218,6 @@ class Button:
                 self.callback(game)
 
 
-class Skill:
-    def __init__(self, player, name, cooldown, max_charges, key):
-        self.player = player
-        self.name = name
-        self.cooldown = cooldown * 1000
-        self.max_charges = max_charges
-        self.key = key
-        self.current_charges = 1
-        self.cooldown_timer = 0
-
-    def activate(self):
-        if self.current_charges > 0:
-            self.current_charges -= 1
-            if self.current_charges < self.max_charges:
-                self.cooldown_timer = pygame.time.get_ticks()
-            
-            if self.name == "冲刺":
-                direction = pygame.math.Vector2(
-                    (pygame.key.get_pressed()[pygame.K_RIGHT] or pygame.key.get_pressed()[pygame.K_d]) - 
-                    (pygame.key.get_pressed()[pygame.K_LEFT] or pygame.key.get_pressed()[pygame.K_a]),
-                    (pygame.key.get_pressed()[pygame.K_DOWN] or pygame.key.get_pressed()[pygame.K_s]) - 
-                    (pygame.key.get_pressed()[pygame.K_UP] or pygame.key.get_pressed()[pygame.K_w])
-                )
-                if direction.length() > 0:
-                    self.player.pos += direction.normalize() * 150
-            return True
-        return False
-
-    def update(self):
-        if self.current_charges < self.max_charges:
-            now = pygame.time.get_ticks()
-            if now - self.cooldown_timer > self.cooldown:
-                self.add_charge()
-                self.cooldown_timer = now
-
-    def add_charge(self, amount=1):
-        self.current_charges = min(self.max_charges, self.current_charges + amount)
-
-    def get_cooldown_progress(self):
-        if self.current_charges >= self.max_charges:
-            return 1.0
-        return (pygame.time.get_ticks() - self.cooldown_timer) / self.cooldown
-
-
 class Game:
     def __init__(self):
         pygame.init()
@@ -414,26 +226,20 @@ class Game:
         self.clock = pygame.time.Clock()
         self.is_running = True
         self.dt = 0
-        self.highscore = self.load_highscore()
         self.max_scroll_y = 0
+        self.game_state = 'account_selection' # Start with account selection
+        self.account_input_text = ''
+        self.selected_account = None
+        self.highscore = 0
         self.reset_game()
 
-    def load_highscore(self):
-        if not os.path.exists(HIGHSCORE_FILE):
-            return 0
-        with open(HIGHSCORE_FILE, 'r') as f:
-            try:
-                return json.load(f).get("highscore", 0)
-            except (json.JSONDecodeError, AttributeError):
-                return 0
-
     def save_highscore(self):
-        with open(HIGHSCORE_FILE, 'w') as f:
-            json.dump({"highscore": self.highscore}, f)
-
+        account_data = account_manager.get_current_account_data()
+        if account_data:
+            account_data["highscore"] = self.highscore
+            account_manager.save_accounts()
 
     def reset_game(self):
-        self.game_state = START_SCREEN
         self.level = 1
         self.upgrade_points = 0
         self.current_mode = None
@@ -449,6 +255,14 @@ class Game:
         self.setup_upgrade_buttons()
         self.setup_start_buttons()
         self.setup_pause_buttons()
+
+    def load_from_account(self):
+        account_data = account_manager.get_current_account_data()
+        if not account_data:
+            return
+
+        self.highscore = account_data.get("highscore", 0)
+        self.game_state = START_SCREEN
 
     def setup_pause_buttons(self):
         self.pause_buttons = []
@@ -469,7 +283,8 @@ class Game:
         self.start_buttons.append(Button(cx, sy + 2 * gap, w, h, "无尽模式", 0, lambda g: g.start_new_game("endless")))
         
         continue_button = Button(cx, sy + 3 * gap, w, h, "继续游戏", 0, lambda g: g.continue_game())
-        if not os.path.exists(SAVE_FILE):
+        save_file = account_manager.get_current_account_data().get("save_file") if account_manager.get_current_account_data() else None
+        if not save_file or not os.path.exists(save_file):
             continue_button.cost = -1 # Make it unclickable
         self.start_buttons.append(continue_button)
         self.start_buttons.append(Button(cx, sy + 4 * gap, w, h, "退出游戏", 0, lambda g: g.quit()))
@@ -488,18 +303,26 @@ class Game:
             self.game_state = PLAYING
         else:
             # This should not happen if button is disabled
-            self.start_new_game()
+            self.start_new_game("normal")
 
     def go_to_main_menu(self):
-        self.reset_game()
+        self.game_state = START_SCREEN
 
     def start_new_level(self):
         self.game_state = PLAYING
-        num_enemies = 5 + self.level * 3  # Increased enemy count scaling
-        for _ in range(num_enemies):
-            enemy = Enemy(self, self.player)
-            self.all_sprites.add(enemy)
-            self.enemy_group.add(enemy)
+
+        if self.current_mode == "endless" and self.level % 20 == 0:
+            # Spawn a boss
+            boss = Boss(self, self.player)
+            self.all_sprites.add(boss)
+            self.enemy_group.add(boss)
+        else:
+            # Spawn normal enemies
+            num_enemies = 5 + self.level * 3
+            for _ in range(num_enemies):
+                enemy = Enemy(self, self.player)
+                self.all_sprites.add(enemy)
+                self.enemy_group.add(enemy)
 
     def setup_upgrade_buttons(self):
         self.upgrade_buttons = []
@@ -532,6 +355,10 @@ class Game:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.is_running = False
+
+            if self.game_state == 'account_selection':
+                self.handle_account_selection_events(event)
+                continue
 
             if self.game_state == UPGRADING or self.game_state == PAUSED:
                 if event.type == pygame.MOUSEWHEEL:
@@ -573,6 +400,40 @@ class Game:
                 for button in self.upgrade_buttons:
                     button.handle_event(event, self, self.ui.scroll_y)
 
+    def handle_account_selection_events(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_RETURN:
+                self.create_account()
+            elif event.key == pygame.K_BACKSPACE:
+                self.account_input_text = self.account_input_text[:-1]
+            else:
+                self.account_input_text += event.unicode
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            # Check account selection
+            y_offset = 200
+            for name in account_manager.accounts:
+                rect = pygame.Rect(WIDTH / 2 - 150, y_offset - 25, 300, 50)
+                if rect.collidepoint(event.pos):
+                    self.selected_account = name
+                y_offset += 50
+            
+            # Check button clicks
+            create_button = Button(WIDTH / 2 - 150, y_offset + 60, 140, 50, "创建", 0, lambda g: g.create_account())
+            enter_button = Button(WIDTH / 2 + 10, y_offset + 60, 140, 50, "进入游戏", 0, lambda g: g.select_account())
+            create_button.handle_event(event, self)
+            enter_button.handle_event(event, self)
+
+    def create_account(self):
+        if self.account_input_text:
+            account_manager.create_account(self.account_input_text)
+            self.account_input_text = ''
+
+    def select_account(self):
+        if self.selected_account:
+            account_manager.set_current_account(self.selected_account)
+            self.load_from_account()
+
+
     def update(self):
         if self.game_state == PLAYING:
             self.all_sprites.update()
@@ -582,6 +443,8 @@ class Game:
                     self.game_state = GAME_WON
                 else:
                     self.level += 1
+                    self.player.max_health += 5
+                    self.player.heal(5)
                     self.game_state = UPGRADING
                     self.ui.scroll_y = 0
                     
@@ -603,8 +466,11 @@ class Game:
 
     def draw(self):
         self.screen.fill(WHITE)
-        self.all_sprites.draw(self.screen)
-        self.ui.draw(self.screen)
+        if self.game_state == 'account_selection':
+            self.ui.draw_account_selection_screen(self.screen)
+        else:
+            self.all_sprites.draw(self.screen)
+            self.ui.draw(self.screen)
         pygame.display.flip()
 
     def quit(self):
@@ -612,6 +478,10 @@ class Game:
         sys.exit()
 
     def save_game(self):
+        account_data = account_manager.get_current_account_data()
+        if not account_data:
+            return
+
         data = {
             "level": self.level,
             "upgrade_points": self.upgrade_points,
@@ -626,19 +496,21 @@ class Game:
                 "kill_count": self.player.kill_count,
             }
         }
-        with open(SAVE_FILE, 'w') as f:
+        with open(account_data["save_file"], 'w') as f:
             json.dump(data, f)
         self.quit()
 
     def load_game(self):
-        if not os.path.exists(SAVE_FILE):
+        account_data = account_manager.get_current_account_data()
+        if not account_data or not os.path.exists(account_data["save_file"]):
             return False
-        with open(SAVE_FILE, 'r') as f:
+            
+        with open(account_data["save_file"], 'r') as f:
             data = json.load(f)
 
         self.level = data["level"]
         self.upgrade_points = data["upgrade_points"]
-        self.current_mode = data.get("current_mode", "normal") # Default to normal for old saves
+        self.current_mode = data.get("current_mode", "normal")
         
         player_data = data["player"]
         self.player.pos = pygame.math.Vector2(player_data["pos"])
