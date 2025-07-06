@@ -7,5 +7,5 @@ class Boss(Enemy):
         super().__init__(game, player)
         self.image = pygame.Surface((ENEMY_SIZE * 2, ENEMY_SIZE * 2))
         self.image.fill(GREEN)
-        self.health = (ENEMY_HEALTH + (self.game.level - 1) * 2) * 20 # 20x health of a normal enemy
+        self.health = (ENEMY_HEALTH * (2 ** ((self.game.level - 1) // 5))) * 20 # 20x health of a normal enemy
         self.speed = ENEMY_SPEED * 0.8 # Slightly slower

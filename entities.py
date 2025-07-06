@@ -134,6 +134,10 @@ class Player(pygame.sprite.Sprite):
             self.pos += vel.normalize() * self.speed * self.game.dt
         self.keep_on_screen()
 
+        for skill in self.skills:
+            if keys[skill.key]:
+                skill.activate()
+
     def keep_on_screen(self):
         self.pos.x = max(PLAYER_SIZE / 2, min(self.pos.x, WIDTH - PLAYER_SIZE / 2))
         self.pos.y = max(PLAYER_SIZE / 2, min(self.pos.y, HEIGHT - PLAYER_SIZE / 2))
@@ -165,7 +169,7 @@ class Enemy(pygame.sprite.Sprite):
         self.pos = self.get_spawn_pos()
         self.rect = self.image.get_rect(center=self.pos)
         self.speed = ENEMY_SPEED
-        self.health = ENEMY_HEALTH + (self.game.level - 1) * 2 # Increased health scaling
+        self.health = ENEMY_HEALTH * (2 ** ((self.game.level - 1) // 5)) # Double health every 5 levels
         self.damage = ENEMY_DAMAGE
 
         if self.game.current_mode == "endless":

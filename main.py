@@ -6,15 +6,11 @@ import os
 import json
 
 from constants import *
-from entities import Player, Enemy, Skill, Projectile
+from entities import Player, Enemy, Projectile
 from endless_mode import Boss
 from account_manager import account_manager
-
-# --- File Paths ---
-# Get the absolute path to the directory where the script is located
-script_dir = os.path.dirname(os.path.abspath(__file__))
-assets_dir = os.path.join(script_dir, "assets")
-FONT_NAME = os.path.join(assets_dir, "SourceHanSansSC-Regular.ttf")
+from ui import Button, SkillPanel, SkillTreePopup
+from skills import SkillTree
 
 class UI:
     def __init__(self, game):
@@ -36,7 +32,7 @@ class UI:
 
 
     def draw(self, screen):
-        if self.game.game_state == 'account_selection':
+        if self.game.game_state == ACCOUNT_SELECTION:
             self.draw_account_selection_screen(screen)
         elif self.game.game_state == START_SCREEN:
             self.draw_start_screen(screen)
@@ -50,8 +46,12 @@ class UI:
 
             if self.game.game_state == UPGRADING:
                 self.draw_upgrade_screen(screen)
+                self.game.skill_panel.draw(screen, self.game.upgrade_points)
             elif self.game.game_state == PAUSED:
                 self.draw_pause_screen(screen)
+            
+            if self.game.game_state == SKILL_TREE_VIEW:
+                self.game.skill_tree_popup.draw(screen, self.game.upgrade_points)
 
     def draw_account_selection_screen(self, screen):
         screen.fill(BLACK)
@@ -87,6 +87,16 @@ class UI:
         
         for button in self.game.start_buttons:
             button.draw(screen, 1) # Pass 1 to enable drawing
+
+        # Zen mode checkbox
+        zen_rect = pygame.Rect(WIDTH / 2 + 200, HEIGHT / 2 - 25, 200, 50)
+        pygame.draw.rect(screen, WHITE, zen_rect, 2)
+        zen_text = self.font.render("禅模式", True, WHITE)
+        screen.blit(zen_text, (zen_rect.x + 10, zen_rect.y + 10))
+        if self.game.is_zen_mode:
+            pygame.draw.line(screen, GREEN, (zen_rect.x + 120, zen_rect.y + 10), (zen_rect.x + 140, zen_rect.y + 40), 5)
+            pygame.draw.line(screen, GREEN, (zen_rect.x + 140, zen_rect.y + 40), (zen_rect.x + 180, zen_rect.y), 5)
+
 
         highscore_text = self.font.render(f"无尽模式最高纪录: {self.game.highscore}", True, YELLOW)
         screen.blit(highscore_text, highscore_text.get_rect(topright=(WIDTH - 20, 20)))
@@ -131,31 +141,24 @@ class UI:
         start_x = (WIDTH - (4 * slot_size + 3 * slot_margin)) / 2
         start_y = HEIGHT - slot_size - slot_margin
 
-        for i in range(4):
+        for i, skill in enumerate(self.game.player.skills):
             x = start_x + i * (slot_size + slot_margin)
             slot_rect = pygame.Rect(x, start_y, slot_size, slot_size)
             
-            if i < len(self.game.player.skills):
-                skill = self.game.player.skills[i]
-                
-                progress = skill.get_cooldown_progress()
-                
-                pygame.draw.rect(screen, BLUE, slot_rect)
-                if progress < 1.0:
-                    overlay_rect = pygame.Rect(x, start_y, slot_size, slot_size * (1-progress))
-                    pygame.draw.rect(screen, (0, 0, 50, 200), overlay_rect)
+            progress = skill.get_cooldown_progress()
+            
+            pygame.draw.rect(screen, BLUE, slot_rect)
+            if progress < 1.0:
+                overlay_rect = pygame.Rect(x, start_y, slot_size, slot_size * (1-progress))
+                pygame.draw.rect(screen, (0, 0, 50, 200), overlay_rect)
 
-                charge_text = self.charge_font.render(str(skill.current_charges), True, WHITE)
-                screen.blit(charge_text, charge_text.get_rect(bottomright=(slot_rect.right - 5, slot_rect.bottom - 5)))
+            charge_text = self.charge_font.render(str(skill.current_charges), True, WHITE)
+            screen.blit(charge_text, charge_text.get_rect(bottomright=(slot_rect.right - 5, slot_rect.bottom - 5)))
 
-                key_name = pygame.key.name(skill.key).upper()
-                if key_name == "SPACE": key_name = "空格"
-                key_text = self.key_font.render(key_name, True, WHITE)
-                screen.blit(key_text, key_text.get_rect(topleft=(slot_rect.left + 5, slot_rect.top + 5)))
-            else:
-                pygame.draw.rect(screen, GREY, slot_rect)
-
-            pygame.draw.rect(screen, BLACK, slot_rect, 2)
+            key_name = pygame.key.name(skill.key).upper()
+            if key_name == "SPACE": key_name = "空格"
+            key_text = self.key_font.render(key_name, True, WHITE)
+            screen.blit(key_text, key_text.get_rect(topleft=(slot_rect.left + 5, slot_rect.top + 5)))
 
     def draw_upgrade_screen(self, screen):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -187,37 +190,6 @@ class UI:
         screen.blit(restart_text, restart_text.get_rect(center=(WIDTH / 2, HEIGHT / 2 + 80)))
 
 
-class Button:
-    def __init__(self, x, y, w, h, text, cost, callback):
-        self.rect = pygame.Rect(x, y, w, h)
-        self.text = text
-        self.cost = cost
-        self.callback = callback
-        self.font = None # Will be set in Game class
-
-    def draw(self, screen, points, offset_y=0):
-        if not self.font:
-            self.font = pygame.font.Font(FONT_NAME, 32) if FONT_NAME else pygame.font.Font(None, 40)
-
-        drawn_rect = self.rect.move(0, offset_y)
-
-        can_afford = points >= self.cost and self.cost != -1
-        color = GREEN if can_afford else GREY
-        pygame.draw.rect(screen, color, drawn_rect)
-        pygame.draw.rect(screen, BLACK, drawn_rect, 2)
-        
-        display_text = f"{self.text} ({self.cost}点)" if self.cost > 0 else self.text
-        text_surf = self.font.render(display_text, True, BLACK)
-        screen.blit(text_surf, text_surf.get_rect(center=drawn_rect.center))
-
-    def handle_event(self, event, game, offset_y=0):
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            drawn_rect = self.rect.move(0, offset_y)
-            if drawn_rect.collidepoint(event.pos) and game.upgrade_points >= self.cost and self.cost != -1:
-                if self.cost > 0: game.upgrade_points -= self.cost
-                self.callback(game)
-
-
 class Game:
     def __init__(self):
         pygame.init()
@@ -227,10 +199,15 @@ class Game:
         self.is_running = True
         self.dt = 0
         self.max_scroll_y = 0
-        self.game_state = 'account_selection' # Start with account selection
+        self.game_state = ACCOUNT_SELECTION
         self.account_input_text = ''
         self.selected_account = None
         self.highscore = 0
+        self.is_zen_mode = False
+        self.zen_wave = 0
+        self.skill_tree = SkillTree()
+        self.skill_panel = SkillPanel(20, 150, 250, 400, self.skill_tree)
+        self.skill_tree_popup = SkillTreePopup(600, 400, self.skill_tree)
         self.reset_game()
 
     def save_highscore(self):
@@ -296,7 +273,8 @@ class Game:
         self.player.kill_count = 0
         self.player.health = self.player.max_health
         self.game_state = PLAYING
-        self.start_new_level()
+        self.zen_wave = 0
+        self.start_new_level(False)
 
     def continue_game(self):
         if self.load_game():
@@ -308,7 +286,9 @@ class Game:
     def go_to_main_menu(self):
         self.game_state = START_SCREEN
 
-    def start_new_level(self):
+    def start_new_level(self, increment_level=True):
+        if increment_level:
+            self.level += 1
         self.game_state = PLAYING
 
         if self.current_mode == "endless" and self.level % 20 == 0:
@@ -356,8 +336,12 @@ class Game:
             if event.type == pygame.QUIT:
                 self.is_running = False
 
-            if self.game_state == 'account_selection':
+            if self.game_state == ACCOUNT_SELECTION:
                 self.handle_account_selection_events(event)
+                continue
+
+            if self.game_state == SKILL_TREE_VIEW:
+                self.skill_tree_popup.handle_event(event, self)
                 continue
 
             if self.game_state == UPGRADING or self.game_state == PAUSED:
@@ -366,6 +350,10 @@ class Game:
                     self.ui.scroll_y = max(-self.max_scroll_y, min(0, self.ui.scroll_y))
 
             if self.game_state == START_SCREEN:
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    zen_rect = pygame.Rect(WIDTH / 2 + 200, HEIGHT / 2 - 25, 200, 50)
+                    if zen_rect.collidepoint(event.pos):
+                        self.is_zen_mode = not self.is_zen_mode
                 for button in self.start_buttons:
                     button.handle_event(event, self)
                 continue
@@ -392,11 +380,10 @@ class Game:
                     self.reset_game()
                 
                 if self.game_state == PLAYING:
-                    for skill in self.player.skills:
-                        if event.key == skill.key:
-                            skill.activate()
+                    pass # Player movement and skill activation is handled in Player class
 
             if self.game_state == UPGRADING:
+                self.skill_panel.handle_event(event, self)
                 for button in self.upgrade_buttons:
                     button.handle_event(event, self, self.ui.scroll_y)
 
@@ -439,20 +426,25 @@ class Game:
             self.all_sprites.update()
             self.check_collisions()
             if not self.enemy_group:
-                if self.current_mode == "normal" and self.level == 20:
-                    self.game_state = GAME_WON
+                if self.is_zen_mode and self.zen_wave < 4:
+                    self.zen_wave += 1
+                    self.start_new_level(False) # Don't increment level yet
                 else:
-                    self.level += 1
-                    self.player.max_health += 5
-                    self.player.heal(5)
-                    self.game_state = UPGRADING
-                    self.ui.scroll_y = 0
-                    
-                    # Recalculate max_scroll_y for upgrade screen
-                    h, gap = 60, 75
-                    sy = 180
-                    content_height = (len(self.upgrade_buttons) * (h + gap)) - gap
-                    self.max_scroll_y = max(0, content_height - (HEIGHT - sy))
+                    if self.current_mode == "normal" and self.level + self.zen_wave >= 20:
+                        self.game_state = GAME_WON
+                    else:
+                        self.level += 5 if self.is_zen_mode else 1
+                        self.player.max_health += 5 * (5 if self.is_zen_mode else 1)
+                        self.player.heal(5 * (5 if self.is_zen_mode else 1))
+                        self.game_state = UPGRADING
+                        self.ui.scroll_y = 0
+                        self.zen_wave = 0
+                        
+                        # Recalculate max_scroll_y for upgrade screen
+                        h, gap = 60, 75
+                        sy = 180
+                        content_height = (len(self.upgrade_buttons) * (h + gap)) - gap
+                        self.max_scroll_y = max(0, content_height - (HEIGHT - sy))
 
     def check_collisions(self):
         for _ in pygame.sprite.groupcollide(self.enemy_group, self.projectile_group, True, True):
@@ -466,7 +458,7 @@ class Game:
 
     def draw(self):
         self.screen.fill(WHITE)
-        if self.game_state == 'account_selection':
+        if self.game_state == ACCOUNT_SELECTION:
             self.ui.draw_account_selection_screen(self.screen)
         else:
             self.all_sprites.draw(self.screen)

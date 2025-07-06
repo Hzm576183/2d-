@@ -1,3 +1,5 @@
+import os
+
 # --- Constants ---
 WIDTH = 1280
 HEIGHT = 720
@@ -15,12 +17,14 @@ YELLOW = (255, 255, 0)
 GREY = (128, 128, 128)
 
 # --- Game States ---
+ACCOUNT_SELECTION = 'account_selection'
 START_SCREEN = 'start_screen'
 PLAYING = 'playing'
 UPGRADING = 'upgrading'
 GAME_OVER = 'game_over'
 GAME_WON = 'game_won'
 PAUSED = 'paused'
+SKILL_TREE_VIEW = 'skill_tree_view'
 
 # --- Game Settings ---
 PLAYER_SIZE = 30
@@ -35,3 +39,9 @@ ENEMY_DAMAGE = 10
 
 PROJECTILE_SIZE = 10
 PROJECTILE_SPEED = 600
+
+# --- File Paths ---
+# Get the absolute path to the directory where the script is located
+script_dir = os.path.dirname(os.path.abspath(__file__))
+assets_dir = os.path.join(script_dir, "assets")
+FONT_NAME = os.path.join(assets_dir, "SourceHanSansSC-Regular.ttf")
