@@ -3,11 +3,13 @@ import sys
 import random
 import math
 import os
+import json
 
 # --- Constants ---
 WIDTH = 1280
 HEIGHT = 720
 FPS = 60
+SAVE_FILE = "savegame.json"
 
 # --- File Paths ---
 # Get the absolute path to the directory where the script is located
@@ -25,9 +27,11 @@ YELLOW = (255, 255, 0)
 GREY = (128, 128, 128)
 
 # --- Game States ---
+START_SCREEN = 'start_screen'
 PLAYING = 'playing'
 UPGRADING = 'upgrading'
 GAME_OVER = 'game_over'
+GAME_WON = 'game_won'
 PAUSED = 'paused'
 
 # --- Game Settings ---
@@ -163,7 +167,7 @@ class Enemy(pygame.sprite.Sprite):
         self.pos = self.get_spawn_pos()
         self.rect = self.image.get_rect(center=self.pos)
         self.speed = ENEMY_SPEED
-        self.health = ENEMY_HEALTH
+        self.health = ENEMY_HEALTH + (self.game.level - 1) * 2 # Increased health scaling
         self.damage = ENEMY_DAMAGE
 
     def get_spawn_pos(self):
@@ -200,8 +204,12 @@ class UI:
 
 
     def draw(self, screen):
-        if self.game.game_state == GAME_OVER:
+        if self.game.game_state == START_SCREEN:
+            self.draw_start_screen(screen)
+        elif self.game.game_state == GAME_OVER:
             self.draw_game_over_screen(screen)
+        elif self.game.game_state == GAME_WON:
+            self.draw_game_won_screen(screen)
         else:
             self.draw_player_hud(screen)
             self.draw_skill_slots(screen)
@@ -211,12 +219,23 @@ class UI:
             elif self.game.game_state == PAUSED:
                 self.draw_pause_screen(screen)
 
+    def draw_start_screen(self, screen):
+        screen.fill(BLACK)
+        title_text = self.title_font.render("肉鸽射击游戏", True, WHITE)
+        screen.blit(title_text, title_text.get_rect(center=(WIDTH / 2, HEIGHT / 4)))
+        
+        for button in self.game.start_buttons:
+            button.draw(screen, 1) # Pass 1 to enable drawing
+
     def draw_pause_screen(self, screen):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 150))
         screen.blit(overlay, (0, 0))
         title_text = self.title_font.render("游戏暂停", True, WHITE)
-        screen.blit(title_text, title_text.get_rect(center=(WIDTH / 2, HEIGHT / 2)))
+        screen.blit(title_text, title_text.get_rect(center=(WIDTH / 2, HEIGHT / 3)))
+        
+        for button in self.game.pause_buttons:
+            button.draw(screen, 1)
 
     def draw_player_hud(self, screen):
         # Health Bar
@@ -237,6 +256,10 @@ class UI:
             color = GREEN if "升级点" in text and self.game.upgrade_points > 0 else BLACK
             text_surf = self.font.render(text, True, color)
             screen.blit(text_surf, (10, 40 + i * 30))
+
+        # Pause Hint
+        pause_text = self.key_font.render("ESC 暂停", True, BLACK)
+        screen.blit(pause_text, pause_text.get_rect(topright=(WIDTH - 10, 10)))
 
     def draw_skill_slots(self, screen):
         slot_size = 60
@@ -290,6 +313,15 @@ class UI:
         restart_text = self.score_font.render("按 R 键重新开始", True, WHITE)
         screen.blit(restart_text, restart_text.get_rect(center=(WIDTH / 2, HEIGHT / 2 + 80)))
 
+    def draw_game_won_screen(self, screen):
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 220))
+        screen.blit(overlay, (0, 0))
+        title_text = self.title_font.render("恭喜通关！", True, GREEN)
+        screen.blit(title_text, title_text.get_rect(center=(WIDTH / 2, HEIGHT / 3)))
+        restart_text = self.score_font.render("按 R 键重新开始", True, WHITE)
+        screen.blit(restart_text, restart_text.get_rect(center=(WIDTH / 2, HEIGHT / 2 + 80)))
+
 
 class Button:
     def __init__(self, x, y, w, h, text, cost, callback):
@@ -303,7 +335,7 @@ class Button:
         if not self.font:
             self.font = pygame.font.Font(FONT_NAME, 32) if FONT_NAME else pygame.font.Font(None, 40)
 
-        can_afford = points >= self.cost
+        can_afford = points >= self.cost and self.cost != -1
         color = GREEN if can_afford else GREY
         pygame.draw.rect(screen, color, self.rect)
         pygame.draw.rect(screen, BLACK, self.rect, 2)
@@ -314,7 +346,7 @@ class Button:
 
     def handle_event(self, event, game):
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            if self.rect.collidepoint(event.pos) and game.upgrade_points >= self.cost:
+            if self.rect.collidepoint(event.pos) and game.upgrade_points >= self.cost and self.cost != -1:
                 if self.cost > 0: game.upgrade_points -= self.cost
                 self.callback(game)
 
@@ -374,7 +406,7 @@ class Game:
         self.reset_game()
 
     def reset_game(self):
-        self.game_state = PLAYING
+        self.game_state = START_SCREEN
         self.level = 1
         self.upgrade_points = 0
         
@@ -387,11 +419,43 @@ class Game:
         
         self.ui = UI(self)
         self.setup_upgrade_buttons()
+        self.setup_start_buttons()
+        self.setup_pause_buttons()
+
+    def setup_pause_buttons(self):
+        self.pause_buttons = []
+        w, h, gap = 380, 60, 75
+        cx, sy = WIDTH / 2 - w / 2, HEIGHT / 2
+
+        self.pause_buttons.append(Button(cx, sy, w, h, "继续游戏", 0, lambda g: setattr(g, 'game_state', PLAYING)))
+        self.pause_buttons.append(Button(cx, sy + gap, w, h, "保存并退出", 0, lambda g: g.save_game()))
+
+    def setup_start_buttons(self):
+        self.start_buttons = []
+        w, h, gap = 380, 60, 75
+        cx, sy = WIDTH / 2 - w / 2, HEIGHT / 2 - h
+
+        self.start_buttons.append(Button(cx, sy, w, h, "新游戏", 0, lambda g: g.start_new_game()))
+        
+        continue_button = Button(cx, sy + gap, w, h, "继续游戏", 0, lambda g: g.continue_game())
+        if not os.path.exists(SAVE_FILE):
+            continue_button.cost = -1 # Make it unclickable
+        self.start_buttons.append(continue_button)
+
+    def start_new_game(self):
+        self.game_state = PLAYING
         self.start_new_level()
+
+    def continue_game(self):
+        if self.load_game():
+            self.game_state = PLAYING
+        else:
+            # This should not happen if button is disabled
+            self.start_new_game()
 
     def start_new_level(self):
         self.game_state = PLAYING
-        num_enemies = 5 + self.level * 2
+        num_enemies = 5 + self.level * 3  # Increased enemy count scaling
         for _ in range(num_enemies):
             enemy = Enemy(self, self.player)
             self.all_sprites.add(enemy)
@@ -413,6 +477,7 @@ class Game:
             self.upgrade_buttons.append(Button(cx, sy + i * gap, w, h, text, cost, action))
         
         self.upgrade_buttons.append(Button(cx, sy + len(upgrades) * gap, w, h, "下一关", 0, lambda g: g.start_new_level()))
+        self.upgrade_buttons.append(Button(cx, sy + (len(upgrades) + 1) * gap, w, h, "保存并退出", 0, lambda g: g.save_game()))
 
     def run(self):
         while self.is_running:
@@ -427,6 +492,15 @@ class Game:
             if event.type == pygame.QUIT:
                 self.is_running = False
 
+            if self.game_state == START_SCREEN:
+                for button in self.start_buttons:
+                    button.handle_event(event, self)
+                continue
+
+            if self.game_state == PAUSED:
+                for button in self.pause_buttons:
+                    button.handle_event(event, self)
+
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     if self.game_state == PLAYING:
@@ -434,7 +508,7 @@ class Game:
                     elif self.game_state == PAUSED:
                         self.game_state = PLAYING
                 
-                if self.game_state == GAME_OVER and event.key == pygame.K_r:
+                if (self.game_state == GAME_OVER or self.game_state == GAME_WON) and event.key == pygame.K_r:
                     self.reset_game()
                 
                 if self.game_state == PLAYING:
@@ -451,8 +525,11 @@ class Game:
             self.all_sprites.update()
             self.check_collisions()
             if not self.enemy_group:
-                self.level += 1
-                self.game_state = UPGRADING
+                if self.level == 20:
+                    self.game_state = GAME_WON
+                else:
+                    self.level += 1
+                    self.game_state = UPGRADING
 
     def check_collisions(self):
         for _ in pygame.sprite.groupcollide(self.enemy_group, self.projectile_group, True, True):
@@ -473,6 +550,45 @@ class Game:
     def quit(self):
         pygame.quit()
         sys.exit()
+
+    def save_game(self):
+        data = {
+            "level": self.level,
+            "upgrade_points": self.upgrade_points,
+            "player": {
+                "pos": [self.player.pos.x, self.player.pos.y],
+                "speed": self.player.speed,
+                "max_health": self.player.max_health,
+                "health": self.player.health,
+                "attack_speed": self.player.attack_speed,
+                "projectile_count": self.player.projectile_count,
+                "kill_count": self.player.kill_count,
+            }
+        }
+        with open(SAVE_FILE, 'w') as f:
+            json.dump(data, f)
+        self.quit()
+
+    def load_game(self):
+        if not os.path.exists(SAVE_FILE):
+            return False
+        with open(SAVE_FILE, 'r') as f:
+            data = json.load(f)
+
+        self.level = data["level"]
+        self.upgrade_points = data["upgrade_points"]
+        
+        player_data = data["player"]
+        self.player.pos = pygame.math.Vector2(player_data["pos"])
+        self.player.speed = player_data["speed"]
+        self.player.max_health = player_data["max_health"]
+        self.player.health = player_data["health"]
+        self.player.attack_speed = player_data["attack_speed"]
+        self.player.projectile_count = player_data["projectile_count"]
+        self.player.kill_count = player_data["kill_count"]
+        
+        self.start_new_level()
+        return True
 
 if __name__ == '__main__':
     Game().run()
