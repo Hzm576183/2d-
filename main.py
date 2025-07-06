@@ -7,6 +7,7 @@ import math
 WIDTH = 1280
 HEIGHT = 720
 FPS = 60
+FONT_NAME = "SourceHanSansSC-Regular.ttf"
 
 # --- Colors ---
 WHITE = (255, 255, 255)
@@ -57,7 +58,7 @@ class Player(pygame.sprite.Sprite):
         self.kill_count = 0
 
         self.skills = [
-            Skill(self, "Dash", 5, 3, pygame.K_SPACE)
+            Skill(self, "冲刺", 5, 3, pygame.K_SPACE)
         ]
 
     def update(self):
@@ -177,9 +178,20 @@ class Enemy(pygame.sprite.Sprite):
 class UI:
     def __init__(self, game):
         self.game = game
-        self.font = pygame.font.Font(None, 36)
-        self.title_font = pygame.font.Font(None, 72)
-        self.score_font = pygame.font.Font(None, 50)
+        try:
+            self.font = pygame.font.Font(FONT_NAME, 30)
+            self.title_font = pygame.font.Font(FONT_NAME, 60)
+            self.score_font = pygame.font.Font(FONT_NAME, 45)
+            self.key_font = pygame.font.Font(FONT_NAME, 20)
+            self.charge_font = pygame.font.Font(FONT_NAME, 26)
+        except FileNotFoundError:
+            print(f"字体文件 '{FONT_NAME}' 未找到，将使用默认字体。")
+            self.font = pygame.font.Font(None, 36)
+            self.title_font = pygame.font.Font(None, 72)
+            self.score_font = pygame.font.Font(None, 50)
+            self.key_font = pygame.font.Font(None, 24)
+            self.charge_font = pygame.font.Font(None, 30)
+
 
     def draw(self, screen):
         if self.game.game_state == GAME_OVER:
@@ -197,7 +209,7 @@ class UI:
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 150))
         screen.blit(overlay, (0, 0))
-        title_text = self.title_font.render("PAUSED", True, WHITE)
+        title_text = self.title_font.render("游戏暂停", True, WHITE)
         screen.blit(title_text, title_text.get_rect(center=(WIDTH / 2, HEIGHT / 2)))
 
     def draw_player_hud(self, screen):
@@ -211,12 +223,12 @@ class UI:
 
         # Stats
         texts = [
-            f"Kills: {self.game.player.kill_count}",
-            f"Level: {self.game.level}",
-            f"Upgrades: {self.game.upgrade_points}"
+            f"击杀: {self.game.player.kill_count}",
+            f"关卡: {self.game.level}",
+            f"升级点: {self.game.upgrade_points}"
         ]
         for i, text in enumerate(texts):
-            color = GREEN if "Upgrades" in text and self.game.upgrade_points > 0 else BLACK
+            color = GREEN if "升级点" in text and self.game.upgrade_points > 0 else BLACK
             text_surf = self.font.render(text, True, color)
             screen.blit(text_surf, (10, 40 + i * 30))
 
@@ -226,9 +238,6 @@ class UI:
         start_x = (WIDTH - (4 * slot_size + 3 * slot_margin)) / 2
         start_y = HEIGHT - slot_size - slot_margin
 
-        key_font = pygame.font.Font(None, 24)
-        charge_font = pygame.font.Font(None, 30)
-
         for i in range(4):
             x = start_x + i * (slot_size + slot_margin)
             slot_rect = pygame.Rect(x, start_y, slot_size, slot_size)
@@ -237,17 +246,18 @@ class UI:
                 skill = self.game.player.skills[i]
                 
                 progress = skill.get_cooldown_progress()
-                overlay_height = int(slot_size * (1 - progress))
                 
                 pygame.draw.rect(screen, BLUE, slot_rect)
                 if progress < 1.0:
                     overlay_rect = pygame.Rect(x, start_y, slot_size, slot_size * (1-progress))
                     pygame.draw.rect(screen, (0, 0, 50, 200), overlay_rect)
 
-                charge_text = charge_font.render(str(skill.current_charges), True, WHITE)
+                charge_text = self.charge_font.render(str(skill.current_charges), True, WHITE)
                 screen.blit(charge_text, charge_text.get_rect(bottomright=(slot_rect.right - 5, slot_rect.bottom - 5)))
 
-                key_text = key_font.render(pygame.key.name(skill.key).upper(), True, WHITE)
+                key_name = pygame.key.name(skill.key).upper()
+                if key_name == "SPACE": key_name = "空格"
+                key_text = self.key_font.render(key_name, True, WHITE)
                 screen.blit(key_text, key_text.get_rect(topleft=(slot_rect.left + 5, slot_rect.top + 5)))
             else:
                 pygame.draw.rect(screen, GREY, slot_rect)
@@ -258,7 +268,7 @@ class UI:
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 180))
         screen.blit(overlay, (0, 0))
-        title_text = self.title_font.render("LEVEL CLEAR", True, WHITE)
+        title_text = self.title_font.render("关卡完成", True, WHITE)
         screen.blit(title_text, title_text.get_rect(center=(WIDTH / 2, 100)))
         for button in self.game.upgrade_buttons:
             button.draw(screen, self.game.upgrade_points)
@@ -267,11 +277,11 @@ class UI:
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 220))
         screen.blit(overlay, (0, 0))
-        title_text = self.title_font.render("GAME OVER", True, RED)
+        title_text = self.title_font.render("游戏结束", True, RED)
         screen.blit(title_text, title_text.get_rect(center=(WIDTH / 2, HEIGHT / 3)))
-        score_text = self.score_font.render(f"You reached level {self.game.level}", True, WHITE)
+        score_text = self.score_font.render(f"你到达了第 {self.game.level} 关", True, WHITE)
         screen.blit(score_text, score_text.get_rect(center=(WIDTH / 2, HEIGHT / 2)))
-        restart_text = self.score_font.render("Press R to Restart", True, WHITE)
+        restart_text = self.score_font.render("按 R 键重新开始", True, WHITE)
         screen.blit(restart_text, restart_text.get_rect(center=(WIDTH / 2, HEIGHT / 2 + 80)))
 
 
@@ -281,15 +291,18 @@ class Button:
         self.text = text
         self.cost = cost
         self.callback = callback
-        self.font = pygame.font.Font(None, 40)
+        self.font = None # Will be set in Game class
 
     def draw(self, screen, points):
+        if not self.font:
+            self.font = pygame.font.Font(FONT_NAME, 32) if FONT_NAME else pygame.font.Font(None, 40)
+
         can_afford = points >= self.cost
         color = GREEN if can_afford else GREY
         pygame.draw.rect(screen, color, self.rect)
         pygame.draw.rect(screen, BLACK, self.rect, 2)
         
-        display_text = f"{self.text} ({self.cost} pt)" if self.cost > 0 else self.text
+        display_text = f"{self.text} ({self.cost}点)" if self.cost > 0 else self.text
         text_surf = self.font.render(display_text, True, BLACK)
         screen.blit(text_surf, text_surf.get_rect(center=self.rect.center))
 
@@ -316,7 +329,7 @@ class Skill:
             if self.current_charges < self.max_charges:
                 self.cooldown_timer = pygame.time.get_ticks()
             
-            if self.name == "Dash":
+            if self.name == "冲刺":
                 direction = pygame.math.Vector2(
                     (pygame.key.get_pressed()[pygame.K_RIGHT] or pygame.key.get_pressed()[pygame.K_d]) - 
                     (pygame.key.get_pressed()[pygame.K_LEFT] or pygame.key.get_pressed()[pygame.K_a]),
@@ -348,7 +361,7 @@ class Game:
     def __init__(self):
         pygame.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
-        pygame.display.set_caption("Roguelite Auto-Shooter")
+        pygame.display.set_caption("肉鸽射击小游戏")
         self.clock = pygame.time.Clock()
         self.is_running = True
         self.dt = 0
@@ -384,16 +397,16 @@ class Game:
         cx, sy = WIDTH / 2 - w / 2, 180
         
         upgrades = [
-            ("Move Speed", 1, lambda g: setattr(g.player, 'speed', g.player.speed + 30)),
-            ("Attack Speed", 1, lambda g: setattr(g.player, 'attack_speed', g.player.attack_speed * 0.85)),
-            ("Max Health", 1, lambda g: (setattr(g.player, 'max_health', g.player.max_health + 20), g.player.heal(20))),
-            ("Spread Shot", 1, lambda g: setattr(g.player, 'projectile_count', g.player.projectile_count + 2)),
-            ("Buy Dash Charge", 2, lambda g: g.player.skills[0].add_charge() if g.player.skills else None)
+            ("移动速度", 1, lambda g: setattr(g.player, 'speed', g.player.speed + 30)),
+            ("攻击速度", 1, lambda g: setattr(g.player, 'attack_speed', g.player.attack_speed * 0.85)),
+            ("最大生命", 1, lambda g: (setattr(g.player, 'max_health', g.player.max_health + 20), g.player.heal(20))),
+            ("散射", 1, lambda g: setattr(g.player, 'projectile_count', g.player.projectile_count + 2)),
+            ("购买冲刺次数", 2, lambda g: g.player.skills[0].add_charge() if g.player.skills else None)
         ]
         for i, (text, cost, action) in enumerate(upgrades):
             self.upgrade_buttons.append(Button(cx, sy + i * gap, w, h, text, cost, action))
         
-        self.upgrade_buttons.append(Button(cx, sy + len(upgrades) * gap, w, h, "NEXT LEVEL", 0, lambda g: g.start_new_level()))
+        self.upgrade_buttons.append(Button(cx, sy + len(upgrades) * gap, w, h, "下一关", 0, lambda g: g.start_new_level()))
 
     def run(self):
         while self.is_running:
