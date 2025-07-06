@@ -10,6 +10,7 @@ WIDTH = 1280
 HEIGHT = 720
 FPS = 60
 SAVE_FILE = "savegame.json"
+HIGHSCORE_FILE = "highscore.json"
 
 # --- File Paths ---
 # Get the absolute path to the directory where the script is located
@@ -134,6 +135,9 @@ class Player(pygame.sprite.Sprite):
         if self.health <= 0:
             self.health = 0
             self.game.game_state = GAME_OVER
+            if self.game.current_mode == "endless" and self.game.level > self.game.highscore:
+                self.game.highscore = self.game.level
+                self.game.save_highscore()
 
     def heal(self, amount):
         self.health = min(self.max_health, self.health + amount)
@@ -188,6 +192,7 @@ class Enemy(pygame.sprite.Sprite):
 class UI:
     def __init__(self, game):
         self.game = game
+        self.scroll_y = 0
         try:
             self.font = pygame.font.Font(FONT_NAME, 30)
             self.title_font = pygame.font.Font(FONT_NAME, 60)
@@ -227,6 +232,9 @@ class UI:
         for button in self.game.start_buttons:
             button.draw(screen, 1) # Pass 1 to enable drawing
 
+        highscore_text = self.font.render(f"无尽模式最高纪录: {self.game.highscore}", True, YELLOW)
+        screen.blit(highscore_text, highscore_text.get_rect(topright=(WIDTH - 20, 20)))
+
     def draw_pause_screen(self, screen):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 150))
@@ -235,7 +243,7 @@ class UI:
         screen.blit(title_text, title_text.get_rect(center=(WIDTH / 2, HEIGHT / 3)))
         
         for button in self.game.pause_buttons:
-            button.draw(screen, 1)
+            button.draw(screen, 1, self.scroll_y)
 
     def draw_player_hud(self, screen):
         # Health Bar
@@ -300,7 +308,7 @@ class UI:
         title_text = self.title_font.render("关卡完成", True, WHITE)
         screen.blit(title_text, title_text.get_rect(center=(WIDTH / 2, 100)))
         for button in self.game.upgrade_buttons:
-            button.draw(screen, self.game.upgrade_points)
+            button.draw(screen, self.game.upgrade_points, self.scroll_y)
 
     def draw_game_over_screen(self, screen):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -331,22 +339,25 @@ class Button:
         self.callback = callback
         self.font = None # Will be set in Game class
 
-    def draw(self, screen, points):
+    def draw(self, screen, points, offset_y=0):
         if not self.font:
             self.font = pygame.font.Font(FONT_NAME, 32) if FONT_NAME else pygame.font.Font(None, 40)
 
+        drawn_rect = self.rect.move(0, offset_y)
+
         can_afford = points >= self.cost and self.cost != -1
         color = GREEN if can_afford else GREY
-        pygame.draw.rect(screen, color, self.rect)
-        pygame.draw.rect(screen, BLACK, self.rect, 2)
+        pygame.draw.rect(screen, color, drawn_rect)
+        pygame.draw.rect(screen, BLACK, drawn_rect, 2)
         
         display_text = f"{self.text} ({self.cost}点)" if self.cost > 0 else self.text
         text_surf = self.font.render(display_text, True, BLACK)
-        screen.blit(text_surf, text_surf.get_rect(center=self.rect.center))
+        screen.blit(text_surf, text_surf.get_rect(center=drawn_rect.center))
 
-    def handle_event(self, event, game):
+    def handle_event(self, event, game, offset_y=0):
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            if self.rect.collidepoint(event.pos) and game.upgrade_points >= self.cost and self.cost != -1:
+            drawn_rect = self.rect.move(0, offset_y)
+            if drawn_rect.collidepoint(event.pos) and game.upgrade_points >= self.cost and self.cost != -1:
                 if self.cost > 0: game.upgrade_points -= self.cost
                 self.callback(game)
 
@@ -403,12 +414,29 @@ class Game:
         self.clock = pygame.time.Clock()
         self.is_running = True
         self.dt = 0
+        self.highscore = self.load_highscore()
+        self.max_scroll_y = 0
         self.reset_game()
+
+    def load_highscore(self):
+        if not os.path.exists(HIGHSCORE_FILE):
+            return 0
+        with open(HIGHSCORE_FILE, 'r') as f:
+            try:
+                return json.load(f).get("highscore", 0)
+            except (json.JSONDecodeError, AttributeError):
+                return 0
+
+    def save_highscore(self):
+        with open(HIGHSCORE_FILE, 'w') as f:
+            json.dump({"highscore": self.highscore}, f)
+
 
     def reset_game(self):
         self.game_state = START_SCREEN
         self.level = 1
         self.upgrade_points = 0
+        self.current_mode = None
         
         self.all_sprites = pygame.sprite.Group()
         self.enemy_group = pygame.sprite.Group()
@@ -425,24 +453,32 @@ class Game:
     def setup_pause_buttons(self):
         self.pause_buttons = []
         w, h, gap = 380, 60, 75
-        cx, sy = WIDTH / 2 - w / 2, HEIGHT / 2
+        cx, sy = WIDTH / 2 - w / 2, HEIGHT / 2 - h
 
         self.pause_buttons.append(Button(cx, sy, w, h, "继续游戏", 0, lambda g: setattr(g, 'game_state', PLAYING)))
         self.pause_buttons.append(Button(cx, sy + gap, w, h, "保存并退出", 0, lambda g: g.save_game()))
+        self.pause_buttons.append(Button(cx, sy + 2 * gap, w, h, "回到主菜单", 0, lambda g: g.go_to_main_menu()))
 
     def setup_start_buttons(self):
         self.start_buttons = []
         w, h, gap = 380, 60, 75
-        cx, sy = WIDTH / 2 - w / 2, HEIGHT / 2 - h
+        cx, sy = WIDTH / 2 - w / 2, HEIGHT / 2 - h - gap * 1.5
 
-        self.start_buttons.append(Button(cx, sy, w, h, "新游戏", 0, lambda g: g.start_new_game()))
+        self.start_buttons.append(Button(cx, sy, w, h, "普通模式", 0, lambda g: g.start_new_game("normal")))
+        self.start_buttons.append(Button(cx, sy + gap, w, h, "副本模式", 0, lambda g: g.start_new_game("dungeon")))
+        self.start_buttons.append(Button(cx, sy + 2 * gap, w, h, "无尽模式", 0, lambda g: g.start_new_game("endless")))
         
-        continue_button = Button(cx, sy + gap, w, h, "继续游戏", 0, lambda g: g.continue_game())
+        continue_button = Button(cx, sy + 3 * gap, w, h, "继续游戏", 0, lambda g: g.continue_game())
         if not os.path.exists(SAVE_FILE):
             continue_button.cost = -1 # Make it unclickable
         self.start_buttons.append(continue_button)
 
-    def start_new_game(self):
+    def start_new_game(self, mode):
+        self.current_mode = mode
+        self.level = 1
+        self.upgrade_points = 0
+        self.player.kill_count = 0
+        self.player.health = self.player.max_health
         self.game_state = PLAYING
         self.start_new_level()
 
@@ -452,6 +488,9 @@ class Game:
         else:
             # This should not happen if button is disabled
             self.start_new_game()
+
+    def go_to_main_menu(self):
+        self.reset_game()
 
     def start_new_level(self):
         self.game_state = PLAYING
@@ -477,7 +516,8 @@ class Game:
             self.upgrade_buttons.append(Button(cx, sy + i * gap, w, h, text, cost, action))
         
         self.upgrade_buttons.append(Button(cx, sy + len(upgrades) * gap, w, h, "下一关", 0, lambda g: g.start_new_level()))
-        self.upgrade_buttons.append(Button(cx, sy + (len(upgrades) + 1) * gap, w, h, "保存并退出", 0, lambda g: g.save_game()))
+        self.upgrade_buttons.append(Button(cx, sy + (len(upgrades) + 1) * gap, w, h, "回到主菜单", 0, lambda g: g.go_to_main_menu()))
+        self.upgrade_buttons.append(Button(cx, sy + (len(upgrades) + 2) * gap, w, h, "保存并退出", 0, lambda g: g.save_game()))
 
     def run(self):
         while self.is_running:
@@ -492,6 +532,11 @@ class Game:
             if event.type == pygame.QUIT:
                 self.is_running = False
 
+            if self.game_state == UPGRADING or self.game_state == PAUSED:
+                if event.type == pygame.MOUSEWHEEL:
+                    self.ui.scroll_y += event.y * 30
+                    self.ui.scroll_y = max(-self.max_scroll_y, min(0, self.ui.scroll_y))
+
             if self.game_state == START_SCREEN:
                 for button in self.start_buttons:
                     button.handle_event(event, self)
@@ -499,12 +544,19 @@ class Game:
 
             if self.game_state == PAUSED:
                 for button in self.pause_buttons:
-                    button.handle_event(event, self)
+                    button.handle_event(event, self, self.ui.scroll_y)
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     if self.game_state == PLAYING:
                         self.game_state = PAUSED
+                        self.ui.scroll_y = 0
+                        
+                        # Recalculate max_scroll_y for pause screen
+                        h, gap = 60, 75
+                        sy = HEIGHT / 2 - h
+                        content_height = (len(self.pause_buttons) * (h + gap)) - gap
+                        self.max_scroll_y = max(0, content_height - (HEIGHT - sy))
                     elif self.game_state == PAUSED:
                         self.game_state = PLAYING
                 
@@ -518,18 +570,25 @@ class Game:
 
             if self.game_state == UPGRADING:
                 for button in self.upgrade_buttons:
-                    button.handle_event(event, self)
+                    button.handle_event(event, self, self.ui.scroll_y)
 
     def update(self):
         if self.game_state == PLAYING:
             self.all_sprites.update()
             self.check_collisions()
             if not self.enemy_group:
-                if self.level == 20:
+                if self.current_mode == "normal" and self.level == 20:
                     self.game_state = GAME_WON
                 else:
                     self.level += 1
                     self.game_state = UPGRADING
+                    self.ui.scroll_y = 0
+                    
+                    # Recalculate max_scroll_y for upgrade screen
+                    h, gap = 60, 75
+                    sy = 180
+                    content_height = (len(self.upgrade_buttons) * (h + gap)) - gap
+                    self.max_scroll_y = max(0, content_height - (HEIGHT - sy))
 
     def check_collisions(self):
         for _ in pygame.sprite.groupcollide(self.enemy_group, self.projectile_group, True, True):
@@ -555,6 +614,7 @@ class Game:
         data = {
             "level": self.level,
             "upgrade_points": self.upgrade_points,
+            "current_mode": self.current_mode,
             "player": {
                 "pos": [self.player.pos.x, self.player.pos.y],
                 "speed": self.player.speed,
@@ -577,6 +637,7 @@ class Game:
 
         self.level = data["level"]
         self.upgrade_points = data["upgrade_points"]
+        self.current_mode = data.get("current_mode", "normal") # Default to normal for old saves
         
         player_data = data["player"]
         self.player.pos = pygame.math.Vector2(player_data["pos"])
