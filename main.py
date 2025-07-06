@@ -2,12 +2,18 @@ import pygame
 import sys
 import random
 import math
+import os
 
 # --- Constants ---
 WIDTH = 1280
 HEIGHT = 720
 FPS = 60
-FONT_NAME = "SourceHanSansSC-Regular.ttf"
+
+# --- File Paths ---
+# Get the absolute path to the directory where the script is located
+script_dir = os.path.dirname(os.path.abspath(__file__))
+assets_dir = os.path.join(script_dir, "assets")
+FONT_NAME = os.path.join(assets_dir, "SourceHanSansSC-Regular.ttf")
 
 # --- Colors ---
 WHITE = (255, 255, 255)
